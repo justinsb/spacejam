@@ -10,7 +10,9 @@ class SpaceJam
 
   @meteor = null
 
-  @phantomjs = null
+  @browsers = []
+
+  @results = []
 
   @ERR_CODE:
     TEST_SUCCESS: 0
@@ -23,7 +25,8 @@ class SpaceJam
     {
       "timeout"   : 120000
       "tinytest"  : "phantomjs" #TODO: For now only phantomjs is supported
-      "crash-spacejam-after": 0
+      "crash-spacejam-after": 0,
+      "parallel"  : 1
     }
 
 
@@ -57,7 +60,8 @@ class SpaceJam
 
     SpaceJam.meteor.on "ready", =>
       log.info "spacejam: meteor is ready"
-      runPhantom(SpaceJam.meteor.opts["root-url"])
+      for i in [1..opts['parallel']]
+        runPhantom(i, SpaceJam.meteor.opts["root-url"])
 
     SpaceJam.meteor.on "error", =>
       log.error "spacejam: meteor has errors, exiting"
@@ -71,27 +75,48 @@ class SpaceJam
       ,+opts["crash-spacejam-after"])
 
 
+  _processResults =->
+    exitCode = 0
+    for i in [1..SpaceJam.opts['parallel']]
+      result = SpaceJam.results[i]
+      if !result?
+        return
+      if exitCode == 0
+        exitCode = result
+    SpaceJam.meteor.kill()
+    if exitCode == 0
+      log.info "SUCCESS"
+    else
+      log.info "FAIL"
 
-  runPhantom=(url)->
+    process.exit exitCode
+
+  runPhantom=(i, url)->
     log.debug "SpaceJam.runPhantom()",arguments
-    SpaceJam.phantomjs = new Phantomjs()
+    phantomjs = new Phantomjs()
 
-    SpaceJam.phantomjs.on "exit", (code,signal)=>
-      SpaceJam.meteor.kill()
+    phantomjs.on "exit", (code,signal)=>
+      result = 0
       if code?
-        process.exit code
+        log.info "phantomjs exited with code #{code}"
+        result = code
       else if signal?
-        process.exit SpaceJam.ERR_CODE.PHANTOM_ERROR
+        log.info "phantomjs exited with signal #{signal}"
+        result = SpaceJam.ERR_CODE.PHANTOM_ERROR
       else
-        process.exit SpaceJam.ERR_CODE.PHANTOM_ERROR
-    SpaceJam.phantomjs.run(url)
+        log.info "phantomjs exited with unknown error"
+        result = SpaceJam.ERR_CODE.PHANTOM_ERROR
+      SpaceJam.results[i] = result
+      _processResults()
+    SpaceJam.browsers.push(phantomjs)
+    phantomjs.run(url)
 
 
   #Kill all running child_process instances
   killChildren=(code = 1)->
     log.debug "SpaceJam.killChildren()",arguments
     SpaceJam.meteor?.kill()
-    SpaceJam.phantomjs?.kill()
+    browser.kill() for browser in SpaceJam.browsers
     process.exit code
 
 
@@ -129,6 +154,8 @@ The following options are specific to spacejam:
  --tinytest                  The browser to run the tests in automatically.
                               Currently, only phantomjs is supported and is
                               the default.
+
+ --parallel                  The number of browser instances to run concurrently.
 
  --meteor-ready-text <text>  The meteor output text that indicates that the
                               app is ready.
