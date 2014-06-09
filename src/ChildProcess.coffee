@@ -31,6 +31,8 @@ class ChildProcess
     @command = taskName
 
     @child = _exec command, (err, stdout, stderr) =>
+      log.info "stdout: #{stdout}"
+      log.info "stderr: #{stderr}"
       if err?.code? and err.code isnt 0
         log.error "#{taskName} exit code: "+err.code
         process.exit(err.code)
